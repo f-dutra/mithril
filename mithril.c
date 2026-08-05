@@ -368,6 +368,9 @@ attachstack(Client *c)
 void
 buttonpress(XEvent *e)
 {
+	static Time lasttime = 0;
+	static Window lastwin = None;
+	static int lastbtn, lastx, lasty;
 	unsigned int i, click = ClkLast;
 	Arg arg;
 	Client *c;
@@ -387,14 +390,28 @@ buttonpress(XEvent *e)
 			if (arg.i != EdgeNone) {
 				click = ClkResize;
 			} else if (c->hastitle && ev->y <= TITLEH(c)) {
-				if (ev->x >= c->bcx && ev->x < c->bcx + c->bcw)
+				if (ev->x >= c->bcx && ev->x < c->bcx + c->bcw) {
 					click = ClkClose;
-				else if (ev->x >= c->bmxx && ev->x < c->bmxx + c->bmxw)
+				} else if (ev->x >= c->bmxx && ev->x < c->bmxx + c->bmxw) {
 					click = ClkMax;
-				else if (ev->x >= c->bmnx && ev->x < c->bmnx + c->bmnw)
+				} else if (ev->x >= c->bmnx && ev->x < c->bmnx + c->bmnw) {
 					click = ClkMin;
-				else
-					click = ClkTitle;
+				} else {
+					if (ev->time - lasttime <= 250 &&
+						lastwin == ev->window &&
+						lastbtn == ev->button &&
+						lastx == ev->x &&
+						lasty == ev->y &&
+						ev->button == Button1)
+						click = ClkMax;
+					else
+						click = ClkTitle;
+					lasttime = ev->time;
+					lastwin = ev->window;
+					lastbtn = ev->button;
+					lastx = ev->x;
+					lasty = ev->y;
+				}
 			}
 		}
 	}
