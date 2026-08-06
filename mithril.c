@@ -2601,10 +2601,11 @@ updatestrut(void)
 	Atom type;
 	Bar *b;
 	Monitor *m;
-	long *strut = NULL;
 	int format;
 	unsigned long n, after;
+	long *strut = NULL;
 	long workarea[4 * nmons];
+	long *ms, *maxstrut = ecalloc(1, sizeof(long) * nmons * 4);
 
 	for (m = mons; m; m = m->next) {
 		m->wx = m->mx;
@@ -2621,15 +2622,21 @@ updatestrut(void)
 				XWindowAttributes wa;
 				if (m != b->mon || !XGetWindowAttributes(dpy, b->win, &wa) || wa.map_state != IsViewable)
 					continue;
-				if (strut[2]) { m->wy += strut[2]; m->wh -= strut[2]; }
-				if (strut[3]) { m->wh -= strut[3]; }
-				if (strut[0]) { m->wx += strut[0]; m->ww -= strut[0]; }
-				if (strut[1]) { m->ww -= strut[1]; }
+				ms = &maxstrut[b->mon->num * 4];
+				if (strut[0] > ms[0]) ms[0] = strut[0]; /* left */
+				if (strut[1] > ms[1]) ms[1] = strut[1]; /* right */
+				if (strut[2] > ms[2]) ms[2] = strut[2]; /* top */
+				if (strut[3] > ms[3]) ms[3] = strut[3]; /* bottom */
 			}
 		}
 		XFree(strut);
 	}
 	for (m = mons; m; m = m->next) {
+		ms = &maxstrut[m->num * 4];
+		m->wx += ms[0];
+		m->ww -= ms[0] + ms[1];
+		m->wy += ms[2];
+		m->wh -= ms[2] + ms[3];
 		workarea[m->num*4+0] = m->wx;
 		workarea[m->num*4+1] = m->wy;
 		workarea[m->num*4+2] = m->ww;
