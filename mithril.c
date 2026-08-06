@@ -1319,6 +1319,8 @@ movekeyboard(const Arg *arg)
 
 	if (!(c = selmon->sel) || c->fullscreen)
 		return;
+	if (!c->floating)
+		togglefloating(NULL);
 
 	nx = c->x;
 	ny = c->y;
@@ -1524,8 +1526,10 @@ resizekeyboard(const Arg *arg)
 	int nw, nh;
 	Client *c;
 
-	if (!(c = selmon->sel) || c->fullscreen || c->maximized)
+	if (!(c = selmon->sel) || c->fullscreen || c->maximized || c->fixed)
 		return;
+	if (!c->floating)
+		togglefloating(NULL);
 
 	nw = c->w;
 	nh = c->h;
@@ -1549,7 +1553,7 @@ resizemouse(const Arg *arg)
 	Time lasttime = 0;
 	Client *c;
 
-	if (!(c = selmon->sel) || c->fullscreen || c->maximized)
+	if (!(c = selmon->sel) || c->fullscreen || c->maximized || c->fixed)
 		return;
 	if (edge < 0) {
 		XWarpPointer(dpy, None, c->win, 0, 0, 0, 0, c->w + c->bw - 1, c->h - TITLEH(c) + c->bw - 1);
