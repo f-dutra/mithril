@@ -1,9 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <string.h>
 #include <math.h>
 #include <X11/Xlib.h>
+//
+#include <pango/pango.h>
+#include <pango/pangocairo.h>
 #include <cairo/cairo-xlib.h>
+
 #include "util.h"
 #include "drw.h"
 
@@ -49,7 +54,7 @@ drw_create(Surf *s)
 	drw = ecalloc(1, sizeof(Drw));
 	drw->surf = s;
 	drw->cr = cairo_create(s);
-	//cairo_set_operator(drw->cr, CAIRO_OPERATOR_SOURCE);
+	cairo_set_operator(drw->cr, CAIRO_OPERATOR_SOURCE);
 
 	return drw;
 }
@@ -62,27 +67,136 @@ drw_destroy(Drw *drw)
 	free(drw);
 }
 
-Fnt*
+Fnt *
 drw_font_create(char *fontname, double fontsize)
 {
-    cairo_font_extents_t fe;
-    cairo_surface_t *tmp;
-    cairo_t *cr;
-    Fnt *f;
-    tmp = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
-    cr = cairo_create(tmp);
-    f = ecalloc(1, sizeof(Fnt));
-    cairo_select_font_face(cr, fontname, CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_NORMAL);
-    cairo_set_font_size(cr, fontsize);
-    cairo_font_extents(cr, &fe);
-    f->name = fontname;
-    f->size = fontsize;
-    f->h = fe.height;
-    f->ascent = fe.ascent;
-    f->descent = fe.descent;
-    cairo_destroy(cr);
-    cairo_surface_destroy(tmp);
-    return f;
+	PangoFontMetrics *metrics;
+	PangoContext *pctx;
+	cairo_surface_t *tmp;
+	cairo_t *cr;
+	Fnt *f;
+
+	tmp = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
+	cr = cairo_create(tmp);
+
+	f = ecalloc(1, sizeof(Fnt));
+	f->name = fontname;
+	f->size = fontsize;
+
+	f->desc = pango_font_description_from_string(fontname);
+	pango_font_description_set_absolute_size(f->desc, fontsize * PANGO_SCALE);
+
+	pctx = pango_cairo_create_context(cr);
+	metrics = pango_context_get_metrics(pctx, f->desc, NULL);
+
+	f->ascent = (double)pango_font_metrics_get_ascent(metrics) / PANGO_SCALE;
+	f->descent = (double)pango_font_metrics_get_descent(metrics) / PANGO_SCALE;
+	f->h = f->ascent + f->descent;
+
+	pango_font_metrics_unref(metrics);
+	g_object_unref(pctx);
+	cairo_destroy(cr);
+	cairo_surface_destroy(tmp);
+
+	return f;
+}
+
+void
+drw_font_destroy(Fnt *fnt)
+{
+	if (!fnt)
+		return;
+	if (fnt->desc)
+		pango_font_description_free(fnt->desc);
+	free(fnt);
+}
+
+Icon *
+drw_icon_create(unsigned long *prop, unsigned long len, unsigned int reqsize)
+{
+	unsigned long i, x, y, bestoff = 0, bestw = 0, besth = 0;
+	long diff, bestdiff = -1;
+	unsigned char *buf;
+	uint32_t *row;
+	int stride;
+	Icon *icon;
+
+	i = 0;
+	while (i + 2 <= len) {
+		unsigned long w = prop[i], h = prop[i + 1];
+		if (w == 0 || h == 0 || w > 4096 || h > 4096 || i + 2 + w * h > len)
+			break;
+		diff = (long)w - (long)reqsize;
+		if (diff < 0)
+			diff = -diff;
+		if (bestdiff < 0 || diff < bestdiff || (diff == bestdiff && w > bestw)) {
+			bestdiff = diff;
+			bestoff = i + 2;
+			bestw = w;
+			besth = h;
+		}
+		i += 2 + w * h;
+	}
+
+	if (bestw == 0 || besth == 0)
+		return NULL;
+
+	stride = cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, bestw);
+	buf = ecalloc(1, (size_t)stride * besth);
+
+	for (y = 0; y < besth; y++) {
+		row = (uint32_t *)(buf + y * stride);
+		for (x = 0; x < bestw; x++) {
+			unsigned long px = prop[bestoff + y * bestw + x];
+			unsigned int a = (px >> 24) & 0xff;
+			unsigned int r = (px >> 16) & 0xff;
+			unsigned int g = (px >>  8) & 0xff;
+			unsigned int b =  px        & 0xff;
+
+			/* premultiply, since cairo's ARGB32 expects it */
+			r = (r * a) / 255;
+			g = (g * a) / 255;
+			b = (b * a) / 255;
+			row[x] = ((uint32_t)a << 24) | (r << 16) | (g << 8) | b;
+		}
+	}
+
+	icon = ecalloc(1, sizeof(Icon));
+	icon->w = (unsigned int)bestw;
+	icon->h = (unsigned int)besth;
+	icon->data = buf;
+	icon->surf = cairo_image_surface_create_for_data(buf, CAIRO_FORMAT_ARGB32,
+			(int)bestw, (int)besth, stride);
+	return icon;
+}
+
+void
+drw_icon(Drw *drw, Icon *icon, int x, int y, int w, int h)
+{
+	cairo_pattern_t *pat;
+
+	if (!icon || !icon->surf || w <= 0 || h <= 0)
+		return;
+
+	cairo_save(drw->cr);
+	cairo_translate(drw->cr, x, y);
+	cairo_scale(drw->cr, (double)w / icon->w, (double)h / icon->h);
+	cairo_set_source_surface(drw->cr, icon->surf, 0, 0);
+	pat = cairo_get_source(drw->cr);
+	cairo_pattern_set_filter(pat, CAIRO_FILTER_GOOD);
+	cairo_paint(drw->cr);
+	cairo_restore(drw->cr);
+}
+
+void
+drw_icon_destroy(Icon *icon)
+{
+	if (!icon)
+		return;
+	if (icon->surf)
+		cairo_surface_destroy(icon->surf);
+	free(icon->data);
+	free(icon);
 }
 
 unsigned long
@@ -140,9 +254,6 @@ drw_set_color(Drw *drw, double *col)
 void
 drw_set_font(Drw *drw, Fnt *fnt)
 {
-	cairo_select_font_face(drw->cr, fnt->name, CAIRO_FONT_SLANT_NORMAL,
-			CAIRO_FONT_WEIGHT_NORMAL);
-	cairo_set_font_size(drw->cr, fnt->size);
 	drw->fnt = fnt;
 }
 
@@ -167,9 +278,18 @@ drw_surf_destroy(Surf *s)
 void
 drw_text(Drw *drw, char *text, int x, int y)
 {
+	PangoLayout *layout;
+
 	drw_set_color(drw, drw->scm[ColFg]);
+
+	layout = pango_cairo_create_layout(drw->cr);
+	pango_layout_set_font_description(layout, drw->fnt->desc);
+	pango_layout_set_text(layout, text, -1);
+
 	cairo_move_to(drw->cr, x, y);
-	cairo_show_text(drw->cr, text);
+	pango_cairo_show_layout(drw->cr, layout);
+
+	g_object_unref(layout);
 }
 
 void
@@ -178,17 +298,27 @@ drw_text_clamp(Drw *drw, char *text, int w, size_t textsize)
 	const char *ellipsis = "...";
 	char buf[512];
 	int avail, len = 0, newlen;
-	cairo_text_extents_t cur, te, ellipsis_te;
+	int tw, th, ew, eh, cw;
+	PangoLayout *layout;
 
-	cairo_text_extents(drw->cr, ellipsis, &ellipsis_te);
-	cairo_text_extents(drw->cr, text, &te);
+	layout = pango_cairo_create_layout(drw->cr);
+	pango_layout_set_font_description(layout, drw->fnt->desc);
 
-	if (te.x_advance <= w)
+	pango_layout_set_text(layout, text, -1);
+	pango_layout_get_pixel_size(layout, &tw, &th);
+
+	if (tw <= w) {
+		g_object_unref(layout);
 		return;
+	}
 
-	avail = w - ellipsis_te.x_advance;
+	pango_layout_set_text(layout, ellipsis, -1);
+	pango_layout_get_pixel_size(layout, &ew, &eh);
+
+	avail = w - ew;
 	if (avail <= 0) {
 		text[0] = '\0';
+		g_object_unref(layout);
 		return;
 	}
 
@@ -198,9 +328,10 @@ drw_text_clamp(Drw *drw, char *text, int w, size_t textsize)
 			newlen++;
 
 		snprintf(buf, sizeof(buf), "%.*s", newlen, text);
-		cairo_text_extents(drw->cr, buf, &cur);
+		pango_layout_set_text(layout, buf, -1);
+		pango_layout_get_pixel_size(layout, &cw, &eh);
 
-		if (cur.x_advance > avail)
+		if (cw > avail)
 			break;
 
 		len = newlen;
@@ -209,27 +340,31 @@ drw_text_clamp(Drw *drw, char *text, int w, size_t textsize)
 	snprintf(buf, sizeof(buf), "%.*s%s", len, text, ellipsis);
 	strncpy(text, buf, textsize - 1);
 	text[textsize - 1] = '\0';
+
+	g_object_unref(layout);
 }
 
 int
 drw_text_getwidth(Fnt *fnt, char *text)
 {
-	cairo_text_extents_t te;
+	PangoLayout *layout;
 	cairo_surface_t *tmp;
 	cairo_t *cr;
+	int w, h;
 
 	tmp = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, 1, 1);
 	cr = cairo_create(tmp);
 
-	cairo_select_font_face(cr, fnt->name, CAIRO_FONT_SLANT_NORMAL,
-			CAIRO_FONT_WEIGHT_NORMAL);
-	cairo_set_font_size(cr, fnt->size);
-	cairo_text_extents(cr, text, &te);
+	layout = pango_cairo_create_layout(cr);
+	pango_layout_set_font_description(layout, fnt->desc);
+	pango_layout_set_text(layout, text, -1);
+	pango_layout_get_pixel_size(layout, &w, &h);
 
+	g_object_unref(layout);
 	cairo_destroy(cr);
 	cairo_surface_destroy(tmp);
 
-	return te.x_advance;
+	return w;
 }
 
 unsigned long

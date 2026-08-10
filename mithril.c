@@ -19,7 +19,7 @@
 #include <X11/Xproto.h>
 #include <X11/Xresource.h>
 #include <X11/extensions/Xrandr.h>
-
+//
 #include "util.h"
 #include "drw.h"
 
@@ -64,7 +64,7 @@ enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
 	  NetWMWindowTypeDropdownMenu, NetWMWindowTypePopupMenu,
 	  NetWMWindowTypeTooltip, NetWMWindowTypeNotification,
 	  NetWMWindowTypeCombo, NetWMWindowTypeDnd,
-	  NetClientList, NetClientListStacking,
+	  NetClientList, NetClientListStacking, NetCloseWindow,
 	  NetWMStrutPartial, NetWorkarea, NetWMFrameExtents,
 	  NetWMMoveResize, NetWMMaximizedVert, NetWMMaximizedHorz,
 	  NetWMHidden, NetNumberOfDesktops, NetCurrentDesktop,
@@ -103,7 +103,7 @@ struct Client {
 	char name[256];
 
 	int x, y, h, w, bw;
-	int ox, oy, oh, ow, obw; /* old values */
+	int ox, oy, oh, ow, obw; /* old geometry */
 
 	int bcx, bmxx, bmnx, bmx;
 	int bcw, bmxw, bmnw, bmw;
@@ -174,6 +174,7 @@ static void buttonpress(XEvent *e);
 static void cleanup(void);
 static void cleanupmon(Monitor *mon);
 static void clientmessage(XEvent *e);
+static void closesel(const Arg *arg);
 static void configurerequest(XEvent *e);
 static Monitor *createmon(void);
 static void destroynotify(XEvent *e);
@@ -181,7 +182,7 @@ static void detach(Client *c);
 static void detachbar(Bar *b);
 static void detachstack(Client *c);
 static Monitor *dirtomon(int dir);
-static void drawdecorations(Client *c, int frame);
+static void drawdecorations(Client *c, int border);
 static void drawtitlebar(Client *c);
 static void enternotify(XEvent *e);
 static void expose(XEvent *e);
@@ -200,7 +201,7 @@ static void grabkeys(void);
 static void incmfact(const Arg *arg);
 static void incnmaster(const Arg *arg);
 static void keypress(XEvent *e);
-static void killclient(const Arg *arg);
+static void killclient(Client *c);
 static Client *lasttiled(Monitor *m);
 static void leavenotify(XEvent *e);
 static void load_xresources(void);
@@ -509,12 +510,19 @@ clientmessage(XEvent *e)
 	} else if (cme->message_type == wmatom[WMChangeState]) {
     		if (cme->data.l[0] == IconicState && !c->minimized)
         		minimize(c, 1);
-	}
-	else if (cme->message_type == netatom[NetActiveWindow]) {
+	} else if (cme->message_type == netatom[NetActiveWindow]) {
 		if (c->minimized)
 			minimize(c, 0);
 		focus(c);
+	} else if (cme->message_type == netatom[NetCloseWindow]) {
+		killclient(c);
 	}
+}
+
+void
+closesel(const Arg *arg)
+{
+	killclient(selmon->sel);
 }
 
 void
@@ -628,7 +636,7 @@ detachstack(Client *c)
 	*tc = c->snext;
 
 	if (c == c->mon->sel) {
-		for (t = c->mon->stack; t; t = t->snext);
+		for (t = c->mon->stack; t && (!ISINWS(t) || t->minimized); t = t->snext);
 		c->mon->sel = t;
 	}
 }
@@ -649,11 +657,11 @@ dirtomon(int dir)
 }
 
 void
-drawdecorations(Client *c, int frame)
+drawdecorations(Client *c, int border)
 {
 	if (!c)
 		return;
-	if (c->hasborder && frame)
+	if (c->hasborder && border)
 		XSetWindowBorder(dpy, c->frame, borders[c == selmon->sel]);
 	if (c->hastitle)
 		drawtitlebar(c);
@@ -665,7 +673,7 @@ drawtitlebar(Client *c)
 	char name[256];
 	int bw, tx;
 	int sel = c == selmon->sel;
-	int ty = (int)round((th - titleborderpx - (font->ascent + font->descent)) / 2.0 + font->ascent) + offset_y;
+	int ty = (int)round((th - titleborderpx - (font->ascent + font->descent)) / 2.0) + offset_y;
 	int by = (int)round((th - titleborderpx - buttonheight) / 2) + offset_y;
 	Drw *drw;
 
@@ -710,7 +718,7 @@ drawtitlebar(Client *c)
 	drw_set_scheme(drw, scheme[c->hvr == HvrMin ? SchemeMinHvr : sel ? SchemeMinSel : SchemeMinNorm]);
 	drw_button(drw, btn_minimize_icn, c->bmnx + lrpad/2, by, c->bmnw - lrpad, buttonheight, buttonradius, buttonborderpx);
 
-	drw_set_scheme(drw, scheme[c->hvr == HvrMax ? SchemeMaxHvr : sel ? SchemeMaxSel : SchemeMinNorm]);
+	drw_set_scheme(drw, scheme[c->hvr == HvrMax ? SchemeMaxHvr : sel ? SchemeMaxSel : SchemeMaxNorm]);
 	drw_button(drw, btn_maximize_icn, c->bmxx + lrpad/2, by, c->bmxw - lrpad, buttonheight, buttonradius, buttonborderpx);
 
 	drw_destroy(drw);
@@ -811,13 +819,13 @@ focusstack(const Arg *arg)
 void
 frame(Client *c)
 {
-	XSetWindowAttributes wa;
-
-	wa.background_pixel = 0x00000000;
-	wa.border_pixel = 0;
-	wa.colormap = cmap;
-	wa.override_redirect = False;
-	wa.backing_store = WhenMapped; /* cache the titlebar pixels */
+	XSetWindowAttributes wa = {
+		.background_pixel = 0x00000000,
+		.border_pixel = 0,
+		.colormap = cmap,
+		.override_redirect = False,
+		.backing_store = WhenMapped, /* cache the titlebar pixels */
+	};
 
 	c->frame = XCreateWindow(dpy, root, c->x, c->y, c->w, c->h, 0,
                        depth, InputOutput, visual,
@@ -979,10 +987,11 @@ grabkeys(void)
 void
 incmfact(const Arg *arg)
 {
-	float f = arg->f < 1.0 ? arg->f + selmon->wsdata[selmon->ws].mfact : arg->f - 1.0;
+	float f;
 
 	if (!arg || !layouts[selmon->ws].arrange)
 		return;
+	f = arg->f < 1.0 ? arg->f + selmon->wsdata[selmon->ws].mfact : arg->f - 1.0;
 	if (f < 0.05 || f > 0.95)
 		return;
 	selmon->wsdata[selmon->ws].mfact = f;
@@ -1001,9 +1010,8 @@ keypress(XEvent *e)
 {
 	unsigned int i;
 	KeySym keysym;
-	XKeyEvent *ev;
+	XKeyEvent *ev = &e->xkey;
 
-	ev = &e->xkey;
 	keysym = XKeycodeToKeysym(dpy, (KeyCode)ev->keycode, 0);
 	for (i = 0; i < LENGTH(keys); i++)
 		if (keysym == keys[i].keysym
@@ -1013,11 +1021,9 @@ keypress(XEvent *e)
 }
 
 void
-killclient(const Arg *arg)
+killclient(Client *c)
 {
-	Client *c;
-
-	if(!(c = selmon->sel))
+	if(!c)
 		return;
 	if (!sendevent(c, wmatom[WMDelete])) {
 		XGrabServer(dpy);
@@ -1036,7 +1042,7 @@ lasttiled(Monitor *m)
 	Client *c, *last = NULL;
 
 	for (c = m->clients; c; c = c->next)
-		if (!c->floating && !c->maximized && !c->minimized && c->ws == m->ws)
+		if (!c->floating && !c->maximized && !c->minimized && !c->fullscreen && ISINWS(c))
 			last = c;
 	return last;
 }
@@ -1394,7 +1400,7 @@ numtomon(int num)
 Client *
 prevtiled(Client *c)
 {
-	for (c = c->prev; c && (c->floating || c->maximized || c->fullscreen || c->minimized); c = c->prev);
+	for (c = c->prev; c && (!ISINWS(c) || c->floating || c->maximized || c->fullscreen || c->minimized); c = c->prev);
 	return c;
 }
 
@@ -1598,25 +1604,21 @@ restack(Monitor *m)
 {
 	Client *c;
 	Bar *b;
-	XWindowChanges wc;
 
 	if (!m->sel)
 		return;
 	if (m->sel->floating || m->sel->maximized || m->sel->fullscreen || !layouts[m->wsdata[m->ws].lt].arrange)
 		XRaiseWindow(dpy, m->sel->frame);
 	if (layouts[m->wsdata[m->ws].lt].arrange) {
-		wc.stack_mode = Below;
 		for (c = m->stack; c; c = c->snext)
-			if ((!c->floating && !c->maximized) && ISINWS(c)) {
-				XConfigureWindow(dpy, c->frame, CWSibling|CWStackMode, &wc);
-				wc.sibling = c->frame;
-			}
+			if ((!c->floating && !c->maximized) && ISINWS(c))
+				XLowerWindow(dpy, c->frame);
 	}
 	for (b = bars; b && !m->sel->fullscreen; b = b->next)
 		if (m == b->mon)
 			XRaiseWindow(dpy, b->win);
 
-	XSync(dpy, False);
+	XFlush(dpy);
 }
 
 void
@@ -1629,7 +1631,7 @@ restoresession(void)
 	if (!fr)
 		return;
 
-	char *str = malloc(64 * sizeof(char));
+	char *str = ecalloc(1, 64 * sizeof(char));
 	while (fscanf(fr, "%63[^\n] ", str) != EOF) {
 		long unsigned int winId;
 		int ismin, ismax, ws, mnum;
@@ -1945,6 +1947,7 @@ setup(void)
 	netatom[NetWMWindowTypeDnd] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_DND", False);
 	netatom[NetClientList] = XInternAtom(dpy, "_NET_CLIENT_LIST", False);
 	netatom[NetClientListStacking] = XInternAtom(dpy, "_NET_CLIENT_LIST_STACKING", False);
+	netatom[NetCloseWindow] = XInternAtom(dpy, "_NET_CLOSE_WINDOW", False);
 	netatom[NetWMStrutPartial] = XInternAtom(dpy, "_NET_WM_STRUT_PARTIAL", False);
 	netatom[NetWorkarea] = XInternAtom(dpy, "_NET_WORKAREA", False);
 	netatom[NetWMFrameExtents] = XInternAtom(dpy, "_NET_FRAME_EXTENTS", False);
@@ -2124,7 +2127,7 @@ swaptiled(const Arg *arg)
 {
 	Client *c, *new;
 
-	if (!(c = selmon->sel) || c->floating || c->maximized || c->fullscreen)
+	if (!(c = selmon->sel) || c->floating || c->maximized || c->fullscreen || c->minimized)
 		return;
 	if (!(new = arg->i > 0 ? nexttiled(c->next) : prevtiled(c)))
 		if (!(new = arg->i > 0 ? nexttiled(c->mon->clients) : lasttiled(c->mon)))
@@ -2614,6 +2617,7 @@ updatestrut(void)
 		workarea[m->num*4+2] = m->ww;
 		workarea[m->num*4+3] = m->wh;
 	}
+	free(maxstrut);
 	XChangeProperty(dpy, root, netatom[NetWorkarea], XA_CARDINAL, 32,
 		PropModeReplace, (unsigned char *)workarea, nmons * 4);
 }
