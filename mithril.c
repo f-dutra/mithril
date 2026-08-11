@@ -188,6 +188,7 @@ static void enternotify(XEvent *e);
 static void expose(XEvent *e);
 static void frame(Client *c);
 static void focus(Client *c);
+static void focusin(XEvent *e);
 static void focusmon(const Arg *arg);
 static void focusstack(const Arg *arg);
 static void unfocus(Client *c, int setfocus);
@@ -313,6 +314,7 @@ void (*handler[LASTEvent]) (XEvent *) = {
 	[DestroyNotify] = destroynotify,
 	[EnterNotify] = enternotify,
 	[Expose] = expose,
+	[FocusIn] = focusin,
 	[KeyPress] = keypress,
 	[LeaveNotify] = leavenotify,
 	[MappingNotify] = mappingnotify,
@@ -322,8 +324,10 @@ void (*handler[LASTEvent]) (XEvent *) = {
 	[UnmapNotify] = unmapnotify
 };
 
+/* uncluding it here allows it to acces the code above */
 #include "config.h"
 
+/* implementations */
 void
 arrange(Monitor *m)
 {
@@ -777,6 +781,15 @@ focus(Client *c)
 	selmon->sel = c;
 	drawdecorations(c, 1);
 	restack(selmon);
+}
+
+void
+focusin(XEvent *e)
+{
+	XFocusChangeEvent *ev = &e->xfocus;
+
+	if (selmon->sel && ev->window != selmon->sel->win)
+		setfocus(selmon->sel);
 }
 
 void
