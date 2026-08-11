@@ -19,7 +19,7 @@
 #include <X11/Xproto.h>
 #include <X11/Xresource.h>
 #include <X11/extensions/Xrandr.h>
-//
+
 #include "util.h"
 #include "drw.h"
 
@@ -1358,13 +1358,18 @@ movemouse(const Arg *arg)
 			nx = ocx + (ev.xmotion.x - x);
 			ny = ocy + (ev.xmotion.y - y);
 
-			if (nx != c->x || ny != c->y){
-				if (c->maximized)
-					unmaximize(c, nx, ny, 0);
-				if (!c->floating)
-					togglefloating(NULL);
+			if ((nx == c->x && ny == c->y) ||
+			   ((!c->floating || c->maximized) &&
+			    MAX(nx, c->x) - MIN(nx, c->x) < 60 &&
+			    MAX(ny, c->y) - MIN(ny, c->y) < th))
+				continue;
+
+			if (!c->floating)
+				togglefloating(NULL);
+			if (c->maximized)
+				unmaximize(c, nx, ny, 0);
+			else
 				resizeclamped(c, nx, ny, c->w, c->h);
-			}
 			if ((m = recttomon(ev.xmotion.x_root, ev.xmotion.y_root, 1, 1)) != selmon) {
 				selmon = m;
 				updatecurrentdesktop();
@@ -1423,8 +1428,13 @@ propertynotify(XEvent *e)
 			if (!c->floating && (XGetTransientForHint(dpy, c->win, &trans)) &&
 				(c->floating = (wintoclient(trans)) != NULL))
 				arrange(c->mon);
-		if (ev->atom == XA_WM_NORMAL_HINTS)
+		if (ev->atom == XA_WM_NORMAL_HINTS) {
 			updatesizehints(c);
+			if (!c->floating && c->fixed) {
+				c->floating = 1;
+				arrange(c->mon);
+			}
+		}
 		if (ev->atom == XA_WM_NAME || ev->atom == netatom[NetWMName]) {
 			updatetitle(c);
 			drawdecorations(c, 0);
