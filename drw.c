@@ -21,7 +21,7 @@ drw_button(Drw *drw, char *text, int x, int y, int w, int h, int r, int linew)
 	drw_rect(drw, x, y, w, h, r, 1, 0);
 	if (linew)
 		drw_rect(drw, x, y, w, h, r, 0, linew);
-	drw_text(drw, text, tx, ty);
+	drw_text(drw, text, tx, ty, 0);
 
 	return;
 }
@@ -276,18 +276,27 @@ drw_surf_destroy(Surf *s)
 }
 
 void
-drw_text(Drw *drw, char *text, int x, int y)
+drw_text(Drw *drw, char *text, int x, int y, int vert)
 {
 	PangoLayout *layout;
+	int w, h;
 
 	drw_set_color(drw, drw->scm[ColFg]);
-
 	layout = pango_cairo_create_layout(drw->cr);
 	pango_layout_set_font_description(layout, drw->fnt->desc);
 	pango_layout_set_text(layout, text, -1);
+	pango_layout_get_pixel_size(layout, &w, &h);
 
-	cairo_move_to(drw->cr, x, y);
+	cairo_save(drw->cr);
+	if (vert) {
+		cairo_translate(drw->cr, x + h, y);
+		cairo_rotate(drw->cr, M_PI / 2.0);
+		cairo_move_to(drw->cr, 0, 0);
+	} else {
+		cairo_move_to(drw->cr, x, y);
+	}
 	pango_cairo_show_layout(drw->cr, layout);
+	cairo_restore(drw->cr);
 
 	g_object_unref(layout);
 }

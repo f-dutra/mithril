@@ -1,10 +1,10 @@
-#define GRAY		"#999999"
-#define GRAYDARK	"#222222"
-#define WHITE		"#e0e0e0"
-#define WHITEALT	"#ffffff"
-#define RED		"#f1212c"
-#define REDALT		"#f1414c"
-#define BLUE		"#818cf1"
+#define GRAY		"#ff999999"
+#define GRAYDARK	"#ff222222"
+#define WHITE		"#ffe0e0e0"
+#define WHITEALT	"#ffffffff"
+#define RED		"#fff1212c"
+#define REDALT		"#fff1414c"
+#define BLUE		"#ff818cf1"
 
 #define MODKEY	Mod4Mask
 #define SHIFT	ShiftMask
@@ -18,6 +18,8 @@ static unsigned int workspaces = 7;
 static const int decorhints  = 1;    /* 1 means respect decoration hints */
 
 static int borderpx 		    = 1;	/* frame border */
+static int verticaltitle		    = 0;
+static int inverttitlebar	    = 0;
 static int titleborderpx 	    = 0;	/* border between the titlebar and client window */
 static char titlefont[] 	         = "monospace";	/* font used on window titles */
 static double fontsize 	         = 13.00;
@@ -25,10 +27,10 @@ static int outerpad			    = 6;	/* titlebar padding */
 static int leftbuttons 	    	    = 0;	/* 1 means buttons start on the left */
 static int lrpad		 	    = 10; /* padding between buttons and text */
 static int centeredtitle  	    = 1;  /* 0 means window title on the left corner */
-static int offset_y			    = 0;  /* offset elements downwards */
-static int buttonradius		    = 2;	/* button roundness */
-static int buttonwidth		    = 11;
-static int buttonheight		    = 11;
+static int offset_y			    = 1;  /* offset elements downwards */
+static int buttonradius		    = 20;	/* button roundness */
+static int buttonwidth		    = 13;
+static int buttonheight		    = 13;
 
 /* You can use a nerd font for button icons */
 static char iconfont[] 	         = "monospace";
@@ -40,16 +42,16 @@ static int buttonborderpx	    = 0;	/* border/outline arround the buttons */
 
 /* Colors */
 /* The WM supports both rgb and argb hex colors */
-static char bgnorm[]		    = "#222222"; /* norm means unfocused window */
-static char bgsel[]	     	    = "#2a2a2a"; /* sel means focused window */
+static char bgnorm[]		    = "#ff222222"; /* norm means unfocused window */
+static char bgsel[]	     	    = "#ff2a2a2a"; /* sel means focused window */
 
 static char fgnorm[]    		    = GRAY;
 static char fgsel[]     		    = WHITE;
 
-static char bordernorm[]		    = "#555555";
-static char bordersel[]		    = "#6a6a6a";
-static char titlebordernorm[]	    = "#111111";
-static char titlebordersel[]	    = "#151515";
+static char bordernorm[]		    = "#ff555555";
+static char bordersel[]		    = "#ff6a6a6a";
+static char titlebordernorm[]	    = "#ff111111";
+static char titlebordersel[]	    = "#ff151515";
 
 /* close button */
 static char closefgnorm[] 	    = GRAY;
@@ -181,6 +183,9 @@ static const char *termcmd[]  = { "st", NULL };
 
 /* keybinds */
 static const Key keys[] = {
+	{ MODKEY,           XK_w,      	spawn,          {.v = (const char*[]){ "firefox", NULL } } },
+	{ MODKEY|SHIFT,     XK_w,      	spawn,          {.v = (const char*[]){ "firefoxprofile", NULL } } },
+	{ MODKEY,           XK_v,      	spawn,          {.v = (const char*[]){ "dmenurecord", NULL } } },
 	{ MODKEY,                       XK_comma,  focusmon,       {.i = -1 } },
 	{ MODKEY,                       XK_period, focusmon,       {.i = +1 } },
 	{ MODKEY|SHIFT,                    XK_comma,  sendtomon,       {.i = -1 } },
@@ -191,7 +196,7 @@ static const Key keys[] = {
 	{ MODKEY,           XK_l,      	incmfact,       {.f = +0.05} },
 	{ MODKEY,           XK_o,      	incnmaster,     {.i = +1 } },
 	{ MODKEY|ShiftMask, XK_o,      	incnmaster,     {.i = -1 } },
-	{ MODKEY,			XK_q,      	killclient,   	 {.v = 0 } },
+	{ MODKEY,			XK_q,      	closesel,   	 {.v = 0 } },
 	{ MODKEY|SHIFT,	XK_q,      	quit,     	 {.v = 0 } },
 	{ MODKEY,			XK_m,      	togglemaximize, {.v = 0 } },
 	{ MODKEY|SHIFT,	XK_m,      	toggleminimize, {.v = 0 } },
@@ -237,7 +242,7 @@ static const Button buttons[] = {
 	{ ClkTitle,		MODKEY,    	Button2,        togglefloating, {0} },
 	{ ClkTitle,		MODKEY,    	Button3,        resizemouse, {-2} },
 	{ ClkResize, 		0,         	Button1,        resizemouse, {0} },
-	{ ClkClose,         0,         	Button1,        killclient, {0} },
+	{ ClkClose,         0,         	Button1,        closesel, {0} },
 	{ ClkMax,	          0,         	Button1,        togglemaximize, {0} },
 	{ ClkMin,	          0,         	Button1,        toggleminimize, {0} },
 	{ ClkClientWin,	MODKEY,    	Button1,        movemouse, {0} },

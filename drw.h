@@ -44,7 +44,7 @@ void drw_set_color(Drw *drw, double *col);
 void drw_set_scheme(Drw *drw, double scheme[3][4]);
 Surf *drw_surf_create(Display *dpy, Drawable d, Visual *v, int w, int h);
 void drw_surf_destroy(Surf *s);
-void drw_text(Drw *drw, char *text, int x, int y);
+void drw_text(Drw *drw, char *text, int x, int y, int vert);
 void drw_text_clamp(Drw *drw, char *text, int w, size_t textsize);
 int drw_text_getwidth(Fnt *fnt, char *text);
 unsigned long drw_x11_color_create(char *clr);
