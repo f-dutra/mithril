@@ -24,13 +24,13 @@ static int titleborderpx 	    = 0;	/* border between the titlebar and client win
 static char titlefont[] 	         = "monospace";	/* font used on window titles */
 static double fontsize 	         = 13.00;
 static int outerpad			    = 6;	/* titlebar padding */
-static int leftbuttons 	    	    = 0;	/* 1 means buttons start on the left */
+static int invertbuttons 	    = 0;	/* 1 means buttons start on the left */
 static int lrpad		 	    = 10; /* padding between buttons and text */
 static int centeredtitle  	    = 1;  /* 0 means window title on the left corner */
 static int offset_y			    = 1;  /* offset elements downwards */
-static int buttonradius		    = 20;	/* button roundness */
-static int buttonwidth		    = 13;
-static int buttonheight		    = 13;
+static int buttonradius		    = 2;	/* button roundness */
+static int buttonwidth		    = 11;
+static int buttonheight		    = 11;
 
 /* You can use a nerd font for button icons */
 static char iconfont[] 	         = "monospace";
@@ -115,7 +115,7 @@ ResourcePref resources[] = {
 	{ "titleborderpx",       INTEGER, &titleborderpx },
 	{ "titlefont",           STRING,  &titlefont },
 	{ "fontsize",            FLOAT,   &fontsize },
-	{ "leftbuttons",      	INTEGER, &leftbuttons },
+	{ "invertbuttons",      	INTEGER, &invertbuttons },
 	{ "lrpad",               INTEGER, &lrpad },
 	{ "centeredtitle",       INTEGER, &centeredtitle },
 	{ "offset_y",            INTEGER, &offset_y },
@@ -209,6 +209,7 @@ static const Key keys[] = {
 	{ MODKEY,           XK_d,      	spawn,          {.v = dmenucmd } },
 	{ MODKEY,           XK_Tab,      	spawn,          {.v = (const char*[]){ "sws", "-a", NULL } } },
 	{ MODKEY|SHIFT,	XK_BackSpace,	quit,		 {1} },
+	{ MODKEY,			XK_space,  	togglesticky,   {0} },
 	{ MODKEY|SHIFT,	XK_space,  	togglefloating, {0} },
 	{ MODKEY, 	     XK_BackSpace, spawn,       {.v = (const char*[]){ "sysact", NULL } }},
 	{ MODKEY|ShiftMask,	XK_equal,  spawn,          {.v = (const char*[]){ "sudo", "xbacklight", "-inc", "5", NULL } } },

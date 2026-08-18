@@ -39,7 +39,7 @@
 
 #define WIDTH(X)                ((X)->w + 2 * (X)->bw)
 #define HEIGHT(X)               ((X)->h + 2 * (X)->bw)
-#define ISINWS(C)			  ((C)->ws == C->mon->ws ? 1 : 0)
+#define ISINWS(C)			  ((C)->ws == C->mon->ws || (C)->sticky ? 1 : 0)
 #define WSINDEX(M, W)		  (W + workspaces * (M)->num)
 
 enum { ClkTitle, ClkResize, ClkClientWin, ClkRootWin, ClkClose,
@@ -109,7 +109,7 @@ struct Client {
 	int hvr;
 
 	int floating, fullscreen, minimized, maximized, urgent;
-	int tmpunmax, tmpunmin, fixed;
+	int tmpunmax, tmpunmin, fixed, sticky;
 
 	int hasdecoration;
 	int ohasdecoration; /* old decoration hints */
@@ -255,6 +255,7 @@ static void togglefloating(const Arg *arg);
 static void togglefullscr(const Arg *arg);
 static void togglemaximize(const Arg *arg);
 static void toggleminimize(const Arg *arg);
+static void togglesticky(const Arg *arg);
 static void unframe(Client *c, int destroyed);
 static void unmanage(Client *c, int destroyed);
 static void unmapnotify(XEvent *e);
@@ -701,26 +702,43 @@ drawtitlebar(Client *c)
 
 	/* calculate button geometry */
 	if (verticaltitle) {
-
 		if(centeredtitle)
 			ty = (c->h - TEXTW(name)) / 2;
 		else
-			ty = (leftbuttons ? outerpad : bh) + lrpad / 2;
-		tx = barx + (int)round((th - titleborderpx - (font->ascent + font->descent)) / 2.0) + (inverttitlebar ? titleborderpx - offset_y : offset_y);
-		drw_rect(drw, barx + (inverttitlebar ? titleborderpx  - titleborderpx / 2: th - titleborderpx + titleborderpx / 2), 0, 0, c->h, 0, 0, titleborderpx);
-		c->bcx = c->bmxx = c->bmnx = barx + (inverttitlebar ? titleborderpx : 0) + (int)round((th - titleborderpx - buttonwidth) / 2 + offset_y) - lrpad / 2;
-		c->bcy = outerpad;
-		c->bmxy = c->bcy + c->bch;
-		c->bmny = c->bmxy + c->bmxh;
+			ty = (invertbuttons ? outerpad : bh) + lrpad / 2;
+		if (inverttitlebar) {
+			tx = barx + (int)round((th - titleborderpx - (font->ascent + font->descent)) / 2.0) + titleborderpx - offset_y;
+			drw_rect(drw, barx + titleborderpx  - titleborderpx / 2, 0, 0, c->h, 0, 0, titleborderpx);
+			c->bcx = c->bmxx = c->bmnx = barx + titleborderpx + (int)round((th - titleborderpx - buttonwidth) / 2 + offset_y) - lrpad / 2;
+		} else {
+			tx = barx + (int)round((th - titleborderpx - (font->ascent + font->descent)) / 2.0) + offset_y;
+			drw_rect(drw, barx + th - titleborderpx + titleborderpx / 2, 0, 0, c->h, 0, 0, titleborderpx);
+			c->bcx = c->bmxx = c->bmnx = barx + (int)round((th - titleborderpx - buttonwidth) / 2 + offset_y) - lrpad / 2;
+		}
+		if (invertbuttons) {
+			c->bcy = outerpad;
+			c->bmxy = c->bcy + c->bch;
+			c->bmny = c->bmxy + c->bmxh;
+		} else {
+			c->bcy = c->h - c->bch - outerpad;
+			c->bmxy = c->bcy - c->bch;
+			c->bmny = c->bmxy - c->bmxh;
+		}
 	} else {
 		if(centeredtitle)
 			tx = (c->w - TEXTW(name)) / 2;
 		else
-			tx = (leftbuttons ? outerpad : bw) + lrpad / 2;
-		ty = bary + (int)round((th - titleborderpx - (font->ascent + font->descent)) / 2.0) + (inverttitlebar ? titleborderpx - offset_y : offset_y);
-		drw_rect(drw, 0, bary + (inverttitlebar ? titleborderpx  - titleborderpx / 2: th - titleborderpx + titleborderpx / 2), c->w, 0, 0, 0, titleborderpx);
-		c->bcy = c->bmxy = c->bmny = bary + (inverttitlebar ? titleborderpx : 0) + (int)round((th - titleborderpx - buttonheight) / 2 + offset_y) - lrpad / 2;
-		if(leftbuttons){
+			tx = (invertbuttons ? outerpad : bw) + lrpad / 2;
+		if (inverttitlebar) {
+			ty = bary + (int)round((th - titleborderpx - (font->ascent + font->descent)) / 2.0) + titleborderpx - offset_y;
+			drw_rect(drw, 0, bary + titleborderpx - titleborderpx / 2, c->w, 0, 0, 0, titleborderpx);
+			c->bcy = c->bmxy = c->bmny = bary + titleborderpx + (int)round((th - titleborderpx - buttonheight) / 2 + offset_y) - lrpad / 2;
+		} else {
+			ty = bary + (int)round((th - titleborderpx - (font->ascent + font->descent)) / 2.0) + offset_y;
+			drw_rect(drw, 0, bary + th - titleborderpx + titleborderpx / 2, c->w, 0, 0, 0, titleborderpx);
+			c->bcy = c->bmxy = c->bmny = bary + (int)round((th - titleborderpx - buttonheight) / 2 + offset_y) - lrpad / 2;
+		}
+		if (invertbuttons) {
 			c->bcx = outerpad;
 			c->bmxx = c->bcx + c->bcw;
 			c->bmnx = c->bmxx + c->bmxw;
@@ -1848,7 +1866,7 @@ sendtows(const Arg *arg)
 void
 setclientdesktop(Client *c)
 {
-	long d = WSINDEX(c->mon, c->ws);
+	long d = c->sticky ? -1 : WSINDEX(c->mon, c->ws);
 	XChangeProperty(dpy, c->win, netatom[NetWMDesktop], XA_CARDINAL, 32,
 		PropModeReplace, (unsigned char *)&d, 1);
 }
@@ -2085,7 +2103,7 @@ showhide(Client *c)
 {
 	if (!c)
 		return;
-	if (c->ws == c->mon->ws) {
+	if (ISINWS(c)) {
 		if (!c->minimized)
 			mapclient(c);
 		showhide(c->snext);
@@ -2286,6 +2304,18 @@ toggleminimize(const Arg *arg)
 {
 	if (selmon->sel)
 		minimize(selmon->sel, !selmon->sel->minimized);
+}
+
+void
+togglesticky(const Arg *arg)
+{
+	if (!selmon->sel)
+		return;
+
+	selmon->sel->sticky = selmon->sel->sticky ? 0 : 1;
+	setclientdesktop(selmon->sel);
+	showhide(selmon->sel);
+	arrange(selmon);
 }
 
 void
