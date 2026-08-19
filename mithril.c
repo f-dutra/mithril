@@ -42,6 +42,7 @@
 #define ISINWS(C)			  ((C)->ws == C->mon->ws || (C)->sticky ? 1 : 0)
 #define WSINDEX(M, W)		  (W + workspaces * (M)->num)
 
+enum { BorderNorm, BorderSel, BorderSwapOrig, BorderSwapDest, BorderLast };
 enum { ClkTitle, ClkResize, ClkClientWin, ClkRootWin, ClkClose,
 	  ClkMax, ClkMin, ClkLast };
 enum { MoveLeft, MoveRight, MoveUp, MoveDown };
@@ -212,6 +213,7 @@ static void mappingnotify(XEvent *e);
 static void maprequest(XEvent *e);
 static void maximize(Client *c);
 static void minimize(Client *c, int hide);
+static void monocle(Monitor *m);
 static void motionnotify(XEvent *e);
 static void movekeyboard(const Arg *arg);
 static void movemouse(const Arg *arg);
@@ -290,9 +292,10 @@ static Fnt *font, *icons;
 static Cursor cursor[CurLast];
 static Cursor curresize[EdgeNone];
 static double scheme[SchemeLast][3][4];
-static unsigned long borders[3];
+static unsigned long borders[BorderLast];
 
 static Bar *bars;
+static Client *dragclient = NULL;
 static Monitor *mons, *selmon;
 static int nmons = 0;
 
@@ -798,6 +801,8 @@ expose(XEvent *e)
 void
 focus(Client *c)
 {
+	if (dragclient && c != dragclient)
+		return;
 	if (!c || !ISINWS(c) || c->minimized)
 		for (c = selmon->stack; c && (!ISINWS(c) || c->minimized); c = c->snext);
 	if (selmon->sel && selmon->sel != c)
@@ -1255,7 +1260,7 @@ maprequest(XEvent *e)
 void
 maximize(Client *c)
 {
-	if(!c || c->maximized)
+	if(!c || c->maximized || c == dragclient)
 		return;
 
 	c->obw = c->bw;
@@ -1271,13 +1276,24 @@ maximize(Client *c)
 void
 minimize(Client *c, int hide)
 {
-	if (!c) return;
+	if (!c)
+		return;
+	if (c == dragclient)
+		dragclient = NULL;
 
 	c->minimized = hide;
 	hide ? unmapclient(c) : mapclient(c);
 	setclientstate(c);
 	arrange(c->mon);
 	focus(NULL);
+}
+
+void
+monocle(Monitor *m)
+{
+	Client *c;
+	for (c = nexttiled(m->clients); c; c = nexttiled(c->next))
+		resize(c, m->wx, m->wy, m->ww, m->wh);
 }
 
 void
@@ -1324,23 +1340,6 @@ motionnotify(XEvent *e)
 	}
 }
 
-int /* this is needed because there is no client message mask */
-moveresize_eventmask(Display *dpy, XEvent *ev, XPointer arg)
-{
-	switch (ev->type) {
-	case ButtonPress:
-	case ButtonRelease:
-	case MotionNotify:
-	case Expose:
-	case ConfigureRequest:
-	case MapRequest:
-	case ClientMessage:
-		return 1;
-	default:
-		return 0;
-	}
-}
-
 void
 movekeyboard(const Arg *arg)
 {
@@ -1384,20 +1383,15 @@ movemouse(const Arg *arg)
 		return;
 	if (!getrootptr(&x, &y))
 		return;
-
+	dragclient = c;
 	ocx = c->maximized && x > c->x + c->ow / 2 ? x - c->ow / 2 : c->x;
 	ocy = c->y;
 	do {
-		XIfEvent(dpy, &ev, moveresize_eventmask, NULL);
+		XNextEvent(dpy, &ev);
 		switch(ev.type) {
 		case ClientMessage:
 			if (ev.xclient.data.l[2] != 11)
 				handler[ev.type](&ev);
-			break;
-		case ConfigureRequest:
-		case Expose:
-		case MapRequest:
-			handler[ev.type](&ev);
 			break;
 		case MotionNotify:
 			if ((ev.xmotion.time - lasttime) <= (1000 / refreshrate))
@@ -1428,10 +1422,15 @@ movemouse(const Arg *arg)
 				focus(c);
 			}
 			break;
+		default:
+			if (ev.type < LASTEvent && handler[ev.type])
+				handler[ev.type](&ev);
+			break;
 		}
 	} while (ev.type != ButtonRelease && !(ev.type == ClientMessage &&
 		ev.xclient.message_type == netatom[NetWMMoveResize] &&
-		ev.xclient.data.l[2] == 11)); /* 11 means cancel move */
+		ev.xclient.data.l[2] == 11) && dragclient); /* 11 means cancel */
+	dragclient = NULL;
 	XUngrabPointer(dpy, CurrentTime);
 }
 
@@ -1613,11 +1612,12 @@ resizemouse(const Arg *arg)
         return;
 	if (!getrootptr(&x, &y))
 		return;
+	dragclient = c;
 	nx = ocx = c->x; ny = ocy = c->y;
 	nw = ocw = c->w; nh = och = c->h;
 
 	do {
-		XIfEvent(dpy, &ev, moveresize_eventmask, NULL);
+		XNextEvent(dpy, &ev);
 		switch (ev.type) {
 		case ClientMessage:
 			if (ev.xclient.data.l[2] != 11)
@@ -1628,10 +1628,6 @@ resizemouse(const Arg *arg)
 				configure(c);
 			else
 				handler[ev.type](&ev);
-			break;
-		case Expose:
-		case MapRequest:
-			handler[ev.type](&ev);
 			break;
 		case MotionNotify:
 			if ((ev.xmotion.time - lasttime) <= (1000 / refreshrate))
@@ -1660,10 +1656,15 @@ resizemouse(const Arg *arg)
 			}
 			resizeclamped(c, nx, ny, nw, nh);
 			break;
+		default:
+			if (ev.type < LASTEvent && handler[ev.type])
+				handler[ev.type](&ev);
+			break;
 		}
 	} while (ev.type != ButtonRelease && !(ev.type == ClientMessage &&
 		ev.xclient.message_type == netatom[NetWMMoveResize] &&
 		ev.xclient.data.l[2] == 11)); /* 11 means cancel move */
+	dragclient = NULL;
 	XUngrabPointer(dpy, CurrentTime);
 }
 
@@ -2064,8 +2065,10 @@ setup(void)
 			drw_color_create(colors[i][j], scheme[i][j]);
 
 	/* border drawing doesn't use cairo */
-	borders[0] = drw_x11_color_create(bordernorm);
-	borders[1] = drw_x11_color_create(bordersel);
+	borders[BorderNorm] = drw_x11_color_create(bordernorm);
+	borders[BorderSel] = drw_x11_color_create(bordersel);
+	borders[BorderSwapOrig] = drw_x11_color_create(borderswaporig);
+	borders[BorderSwapDest] = drw_x11_color_create(borderswapdest);
 
 	wmcheckwin = XCreateSimpleWindow(dpy, root, 0, 0, 1, 1, 0, 0, 0);
 	XChangeProperty(dpy, wmcheckwin, netatom[NetWMCheck], XA_WINDOW, 32,
@@ -2208,41 +2211,56 @@ swapmouse(const Arg *arg)
 	int x = 0, y = 0;
 	XEvent ev;
 	Time lasttime = 0;
-	Client *c, *t;
+	Client *c, *t, *hit, *target = NULL;
 
+	if (!layouts[selmon->wsdata[selmon->ws].lt].arrange ||
+		layouts[selmon->wsdata[selmon->ws].lt].arrange == monocle)
+		return;
 	if (!(c = selmon->sel) || c->fullscreen || c->floating || c->maximized)
 		return;
 	if (XGrabPointer(dpy, root, False, MOUSEMASK, GrabModeAsync, GrabModeAsync,
 		None, cursor[CurMove], CurrentTime) != GrabSuccess)
 		return;
+	dragclient = c;
+	XSetWindowBorder(dpy, c->frame, borders[BorderSwapOrig]);
 	do {
-		XIfEvent(dpy, &ev, moveresize_eventmask, NULL);
+		XNextEvent(dpy, &ev);
 		switch(ev.type) {
-		case ClientMessage:
-		case ConfigureRequest:
-		case Expose:
-		case MapRequest:
-			handler[ev.type](&ev);
-			break;
 		case MotionNotify:
 			if ((ev.xmotion.time - lasttime) <= (1000 / refreshrate))
 				continue;
+			hit = NULL;
 			lasttime = ev.xmotion.time;
 
 			x = ev.xmotion.x_root;
 			y = ev.xmotion.y_root;
 
-			break;
-		}
-	} while (ev.type != ButtonRelease);
+			for (t = selmon->clients; t; t = nexttiled(t->next)) {
+				if (t != c && x > t->x && x < t->x + t->w && y > t->y && y < t->y + t->h) {
+					hit = t;
+					break;
+				}
+			}
 
-	for (t = selmon->clients; t; t = nexttiled(t->next)) {
-		if (t != c && x > t->x && x < t->x + t->w && y > t->y && y < t->y + t->h) {
-			swapclients(c, t);
-			arrange(selmon);
+			if (hit != target) {
+				if (target)
+					XSetWindowBorder(dpy, target->frame, borders[BorderNorm]);
+				if (hit)
+					XSetWindowBorder(dpy, hit->frame, borders[BorderSwapDest]);
+				target = hit;
+			}
+			break;
+		default:
+			if (ev.type < LASTEvent && handler[ev.type])
+				handler[ev.type](&ev);
 			break;
 		}
-	}
+	} while (dragclient && ev.type != ButtonRelease);
+
+	if (target && dragclient)
+		swapclients(c, target);
+	dragclient = NULL;
+	arrange(selmon);
 	XUngrabPointer(dpy, CurrentTime);
 }
 
@@ -2281,6 +2299,8 @@ togglefloating(const Arg *arg)
 {
 	if (!selmon->sel || selmon->sel->fullscreen || selmon->sel->maximized || selmon->sel->fixed)
 		return;
+	if (selmon->sel->floating && selmon->sel == dragclient)
+		dragclient = NULL;
 	selmon->sel->floating = !selmon->sel->floating;
 	arrange(selmon);
 }
@@ -2350,6 +2370,8 @@ unfocus(Client *c, int setfocus)
 
 void unmanage(Client *c, int destroyed)
 {
+	if (c == dragclient)
+		dragclient = NULL;
 	detach(c);
 	detachstack(c);
 	unframe(c, destroyed);

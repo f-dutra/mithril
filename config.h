@@ -50,6 +50,9 @@ static char fgsel[]     		    = WHITE;
 
 static char bordernorm[]		    = "#ff555555";
 static char bordersel[]		    = "#ff6a6a6a";
+static char borderswaporig[]	    = "#ffeeeeee";
+static char borderswapdest[]	    = RED;
+
 static char titlebordernorm[]	    = "#ff111111";
 static char titlebordersel[]	    = "#ff151515";
 
