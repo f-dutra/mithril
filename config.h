@@ -201,6 +201,7 @@ static const Key keys[] = {
 	{ MODKEY|ShiftMask, XK_o,      	incnmaster,     {.i = -1 } },
 	{ MODKEY,			XK_q,      	closesel,   	 {.v = 0 } },
 	{ MODKEY|SHIFT,	XK_q,      	quit,     	 {.v = 0 } },
+	{ MODKEY,			XK_a,      	togglegaps, {.v = 0 } },
 	{ MODKEY,			XK_m,      	togglemaximize, {.v = 0 } },
 	{ MODKEY|SHIFT,	XK_m,      	toggleminimize, {.v = 0 } },
 	{ MODKEY,			XK_f,      	togglefullscr,  {.v = 0 } },

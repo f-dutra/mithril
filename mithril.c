@@ -253,6 +253,7 @@ static void swapclients(Client *c1, Client *c2);
 static void swapmouse(const Arg *arg);
 static void swaptiled(const Arg *arg);
 static void tile(Monitor *m);
+static void togglegaps(const Arg *arg);
 static void togglefloating(const Arg *arg);
 static void togglefullscr(const Arg *arg);
 static void togglemaximize(const Arg *arg);
@@ -1039,7 +1040,7 @@ incmfact(const Arg *arg)
 {
 	float f;
 
-	if (!arg || !layouts[selmon->ws].arrange)
+	if (!arg || !layouts[selmon->wsdata[selmon->ws].lt].arrange)
 		return;
 	f = arg->f < 1.0 ? arg->f + selmon->wsdata[selmon->ws].mfact : arg->f - 1.0;
 	if (f < 0.05 || f > 0.95)
@@ -1663,7 +1664,7 @@ resizemouse(const Arg *arg)
 		}
 	} while (ev.type != ButtonRelease && !(ev.type == ClientMessage &&
 		ev.xclient.message_type == netatom[NetWMMoveResize] &&
-		ev.xclient.data.l[2] == 11)); /* 11 means cancel move */
+		ev.xclient.data.l[2] == 11) && dragclient); /* 11 means cancel */
 	dragclient = NULL;
 	XUngrabPointer(dpy, CurrentTime);
 }
@@ -2235,7 +2236,7 @@ swapmouse(const Arg *arg)
 			x = ev.xmotion.x_root;
 			y = ev.xmotion.y_root;
 
-			for (t = selmon->clients; t; t = nexttiled(t->next)) {
+			for (t = nexttiled(selmon->clients); t; t = nexttiled(t->next)) {
 				if (t != c && x > t->x && x < t->x + t->w && y > t->y && y < t->y + t->h) {
 					hit = t;
 					break;
@@ -2295,6 +2296,13 @@ tile(Monitor *m)
 }
 
 void
+togglegaps(const Arg *arg)
+{
+	selmon->wsdata[selmon->ws].gappx = selmon->wsdata[selmon->ws].gappx ? 0 : workspace_rules[selmon->ws].gappx;
+	arrange(selmon);
+}
+
+void
 togglefloating(const Arg *arg)
 {
 	if (!selmon->sel || selmon->sel->fullscreen || selmon->sel->maximized || selmon->sel->fixed)
@@ -2334,7 +2342,8 @@ togglesticky(const Arg *arg)
 
 	selmon->sel->sticky = selmon->sel->sticky ? 0 : 1;
 	setclientdesktop(selmon->sel);
-	showhide(selmon->sel);
+	if (!selmon->sel->sticky && !ISINWS(selmon->sel))
+		unmapclient(selmon->sel);
 	arrange(selmon);
 }
 
