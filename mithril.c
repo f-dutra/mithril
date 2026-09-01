@@ -17,11 +17,12 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/Xproto.h>
-#include <X11/Xresource.h>
 #include <X11/extensions/Xrandr.h>
 
+#include "defs.h"
 #include "util.h"
 #include "drw.h"
+#include "config.h"
 
 #define SESSION_FILE "/tmp/mithril-session"
 #define BUTTONMASK              (ButtonPressMask|ButtonReleaseMask)
@@ -45,7 +46,6 @@
 enum { BorderNorm, BorderSel, BorderSwapOrig, BorderSwapDest, BorderLast };
 enum { ClkTitle, ClkResize, ClkClientWin, ClkRootWin, ClkClose,
 	  ClkMax, ClkMin, ClkLast };
-enum { MoveLeft, MoveRight, MoveUp, MoveDown };
 enum { HvrNone, HvrClose, HvrMax, HvrMin, HvrMenu };
 enum { CurNormal, CurMove, CurLast }; /* cursor */
 enum { ClrNorm, ClrSel, ClrSpecial, ClrLast };
@@ -69,18 +69,10 @@ enum { NetSupported, NetWMName, NetWMState, NetWMCheck,
 	  NetDesktopNames, NetDesktopViewport, NetWMDesktop, NetLast }; /* EWMH atoms */
 enum { WMProtocols, WMDelete, WMState, WMTakeFocus,
 	  WMChangeState, WMLast }; /* ICCM atoms */
-enum resource_type { STRING, INTEGER, FLOAT };
 
 typedef struct Bar Bar;
 typedef struct Client Client;
 typedef struct Monitor Monitor;
-
-typedef union {
-	int i;
-	unsigned int ui;
-	float f;
-	const void *v;
-} Arg;
 
 struct Bar {
 	long strut[4];
@@ -127,24 +119,9 @@ struct Client {
 };
 
 typedef struct {
-	unsigned int mod;
-	KeySym keysym;
-	void (*func)(const Arg *);
-	const Arg arg;
-} Key;
-
-typedef struct {
-	const char *symbol;
+	const char *name;
 	void (*arrange)(Monitor *);
 } Layout;
-
-typedef struct {
-	char *name;
-	int lt;
-	int gappx;
-	float mfact;
-	int nmaster;
-} Workspace;
 
 struct Monitor {
 	int mx, my, mw, mh;
@@ -163,7 +140,7 @@ struct Monitor {
 
 typedef struct {
 	char *name;
-	enum resource_type type;
+	int type;
 	void *dst;
 } ResourcePref;
 
@@ -175,7 +152,6 @@ static void buttonpress(XEvent *e);
 static void cleanup(void);
 static void cleanupmon(Monitor *mon);
 static void clientmessage(XEvent *e);
-static void closesel(const Arg *arg);
 static void configurerequest(XEvent *e);
 static Monitor *createmon(void);
 static void destroynotify(XEvent *e);
@@ -190,23 +166,19 @@ static void expose(XEvent *e);
 static void frame(Client *c);
 static void focus(Client *c);
 static void focusin(XEvent *e);
-static void focusmon(const Arg *arg);
-static void focusstack(const Arg *arg);
 static void unfocus(Client *c, int setfocus);
 static Atom getatomprop(Window w, Atom prop);
 static int  getedge(Client *c, int x, int y);
+static int  getlayoutnum(char *name);
 static int  getrootptr(int *x, int *y);
 static long getstate(Window w);
 static int gettextprop(Window w, Atom atom, char *text, unsigned int size);
 static void grabbuttons(Client *c, int focused);
 static void grabkeys(void);
-static void incmfact(const Arg *arg);
-static void incnmaster(const Arg *arg);
 static void keypress(XEvent *e);
 static void killclient(Client *c);
 static Client *lasttiled(Monitor *m);
 static void leavenotify(XEvent *e);
-static void load_xresources(void);
 static void mapclient(Client *c);
 static void manage(Window w, XWindowAttributes *wa);
 static void mappingnotify(XEvent *e);
@@ -215,19 +187,13 @@ static void maximize(Client *c);
 static void minimize(Client *c, int hide);
 static void monocle(Monitor *m);
 static void motionnotify(XEvent *e);
-static void movekeyboard(const Arg *arg);
-static void movemouse(const Arg *arg);
 static Client *nexttiled(Client *c);
 Monitor *numtomon(int num);
 static Client *prevtiled(Client *c);
 static void propertynotify(XEvent *e);
-static void quit(const Arg *arg);
 static Monitor *recttomon(int x, int y, int w, int h);
 static void resize(Client *c, int x, int y, int w, int h);
 static void resizeclamped(Client *c, int x, int y, int w, int h);
-static void resizekeyboard(const Arg *arg);
-static void resizemouse(const Arg *arg);
-static void resource_load(XrmDatabase db, char *name, enum resource_type rtype, void *dst);
 static void restack(Monitor *m);
 static void restoresession(void);
 static void run(void);
@@ -235,30 +201,18 @@ static void savesession(void);
 static void scan(void);
 static void sendclient(Client *c, Monitor *m, int ws, int warp);
 static int sendevent(Client *c, Atom proto);
-static void sendtows(const Arg *arg);
-static void sendtomon(const Arg *arg);
 static void setup(void);
 static void setclientdesktop(Client *c);
 static void setclientstate(Client *c);
 static void setfocus(Client *c);
 static void setfocusmon(Monitor *m, int warp);
 static void setfullscreen(Client *c, int fullscreen);
-static void setlayout(const Arg *arg);
 static void setwmstate(Window w, long state);
 static void showhide(Client *c);
 static void sighup(int unused);
 static void sigterm(int unused);
-static void spawn(const Arg *arg);
 static void swapclients(Client *c1, Client *c2);
-static void swapmouse(const Arg *arg);
-static void swaptiled(const Arg *arg);
 static void tile(Monitor *m);
-static void togglegaps(const Arg *arg);
-static void togglefloating(const Arg *arg);
-static void togglefullscr(const Arg *arg);
-static void togglemaximize(const Arg *arg);
-static void toggleminimize(const Arg *arg);
-static void togglesticky(const Arg *arg);
 static void unframe(Client *c, int destroyed);
 static void unmanage(Client *c, int destroyed);
 static void unmapnotify(XEvent *e);
@@ -276,7 +230,6 @@ static void updatestrut(void);
 static void updatetitle(Client *c);
 static void updatewindowtype(Client *c);
 static void updateviewport(void);
-static void view(const Arg *arg);
 static Bar *wintobar(Window w);
 static Client *wintoclient(Window w);
 static Monitor *wintomon(Window w);
@@ -312,6 +265,44 @@ static int (*xerrorxlib)(Display *, XErrorEvent *);
 static int xrandr_evbase, xrandr_errbase;
 static int hasxrandr;
 
+static const Button buttons[] = {
+	{ ClkTitle,		0,         	Button1,	movemouse, {0} },
+	{ ClkTitle,		Mod4Mask,    	Button1,	movemouse, {0} },
+	{ ClkTitle,		0,         	Button2,	togglefloating, {0} },
+	{ ClkTitle,		0,         	Button3,	swapmouse, {0} },
+	{ ClkTitle,		Mod4Mask|ShiftMask, Button3,	swapmouse, {0} },
+	{ ClkTitle,		Mod4Mask,    	Button2,	togglefloating, {0} },
+	{ ClkTitle,		Mod4Mask,    	Button3,	resizemouse, {-2} },
+	{ ClkResize, 		0,         	Button1,	resizemouse, {0} },
+	{ ClkClose,         0,         	Button1,	closesel, {0} },
+	{ ClkMax,	          0,         	Button1,	togglemaximize, {0} },
+	{ ClkMin,	          0,         	Button1,	toggleminimize, {0} },
+	{ ClkClientWin,	Mod4Mask,    	Button1,	movemouse, {0} },
+	{ ClkClientWin,	Mod4Mask,    	Button2,	togglefloating, {0} },
+	{ ClkClientWin,	Mod4Mask,     	Button3,	resizemouse, {-1} },
+	{ ClkClientWin,	Mod4Mask|ShiftMask,	Button3,	swapmouse, {0} },
+};
+
+static char *colors[SchemeLast][3] = {
+	[SchemeNorm]	   = { fgnorm, bgnorm, titlebordernorm },
+	[SchemeSel]	   = { fgsel, bgsel, titlebordersel  },
+	[SchemeCloseNorm] = { closefgnorm, closebgnorm, closebordernorm },
+	[SchemeMaxNorm]   = { maximizefgnorm, maximizebgnorm, maximizebordernorm },
+	[SchemeMinNorm]   = { minimizefgnorm, minimizebgnorm, minimizebordernorm },
+	[SchemeCloseSel]  = { closefgsel, closebgsel, closebordersel },
+	[SchemeMaxSel]    = { maximizefgsel, maximizebgsel, maximizebordersel },
+	[SchemeMinSel]    = { minimizefgsel, minimizebgsel, minimizebordersel },
+	[SchemeCloseHvr]  = { closefghover, closebghover, closeborderhover },
+	[SchemeMaxHvr]    = { maximizefghover, maximizebghover, maximizeborderhover },
+	[SchemeMinHvr]    = { minimizefghover, minimizebghover, minimizeborderhover },
+};
+
+static const Layout layouts[] = {
+	{ "floating", NULL },
+	{ "master-stack", tile },
+	{ "monocle", monocle},
+};
+
 void (*handler[LASTEvent]) (XEvent *) = {
 	[ButtonPress] = buttonpress,
 	[ClientMessage] = clientmessage,
@@ -329,8 +320,8 @@ void (*handler[LASTEvent]) (XEvent *) = {
 	[UnmapNotify] = unmapnotify
 };
 
-/* uncluding it here allows it to acces the code above */
-#include "config.h"
+char *wsnames[] = {"1", "2", "3", "4", "5", "6", "7", "8", "9"};
+
 
 /* implementations */
 void
@@ -454,6 +445,7 @@ cleanup(void)
 	XSetInputFocus(dpy, PointerRoot, RevertToPointerRoot, CurrentTime);
 	XDeleteProperty(dpy, root, netatom[NetActiveWindow]);
 	free(font);
+	cfg_cleanup();
 }
 
 void
@@ -483,7 +475,7 @@ clientmessage(XEvent *e)
 	Client *c;
 
 	if (cme->message_type == netatom[NetCurrentDesktop]) {
-		arg.i = (int)cme->data.l[0] % workspaces;
+		arg.i = (int)cme->data.l[0] % workspaces + 1;
 		setfocusmon(numtomon((int)cme->data.l[0] / workspaces), 1);
 		view(&arg);
 		return;
@@ -581,17 +573,37 @@ configurerequest(XEvent *e)
 Monitor *
 createmon(void)
 {
+	int i, j, hasrule = 0;
 	Monitor *m;
 
 	m = ecalloc(1, sizeof(Monitor));
 	m->ws = 0;
 
-	if (workspaces > LENGTH(workspace_rules))
-		workspaces = LENGTH(workspace_rules);
-
 	m->wsdata = ecalloc(1, sizeof(Workspace) * workspaces);
-	memcpy(m->wsdata, workspace_rules, workspaces * sizeof(Workspace));
 
+	for (i = 0; i < workspaces; i++) {
+		for (j = 0; j < nwsrule; j++) {
+			if (workspacerules[j].num - 1 == i) {
+				snprintf(m->wsdata[i].name, sizeof(m->wsdata[i].name),
+					   "%s", workspacerules[j].name);
+				m->wsdata[i].gappx = workspacerules[j].gappx;
+				m->wsdata[i].mfact = workspacerules[j].mfact;
+				m->wsdata[i].nmaster = workspacerules[j].nmaster;
+				m->wsdata[i].lt = getlayoutnum(workspacerules[j].layout);
+				hasrule = 1;
+				break;
+			}
+		}
+
+		if (!hasrule) {
+			snprintf(m->wsdata[i].name, sizeof(m->wsdata[i].name), "%d", i + 1);
+			m->wsdata[i].lt = getlayoutnum(layout);
+			m->wsdata[i].gappx = gappx;
+			m->wsdata[i].mfact = mfact;
+			m->wsdata[i].nmaster = nmaster;
+		}
+		hasrule = 0;
+	}
 	return m;
 }
 
@@ -939,6 +951,17 @@ getedge(Client *c, int x, int y)
 }
 
 int
+getlayoutnum(char *name)
+{
+	int i;
+
+	for (i = 0; i < LENGTH(layouts); i++)
+		if (strcmp(name, layouts[i].name) == 0)
+			return i;
+	return 0;
+}
+
+int
 getrootptr(int *x, int *y)
 {
 	int di;
@@ -999,7 +1022,7 @@ grabbuttons(Client *c, int focused)
 	XUngrabButton(dpy, AnyButton, AnyModifier, c->win);
 	if (!focused)
 		XGrabButton(dpy, AnyButton, AnyModifier, c->win, False,
-			BUTTONMASK, GrabModeAsync, GrabModeAsync, None, None);
+			BUTTONMASK, GrabModeSync, GrabModeSync, None, None);
 	for (i = 0; i < LENGTH(buttons); i++)
 		if (buttons[i].click == ClkClientWin)
 			for (j = 0; j < LENGTH(modifiers); j++)
@@ -1024,7 +1047,7 @@ grabkeys(void)
 	if (!syms)
 		return;
 	for (k = start; k <= end; k++)
-		for (i = 0; i < LENGTH(keys); i++)
+		for (i = 0; i < nkeys; i++)
 			/* skip modifier codes, we do that ourselves */
 			if (keys[i].keysym == syms[(k - start) * skip])
 				for (j = 0; j < LENGTH(modifiers); j++)
@@ -1038,7 +1061,7 @@ grabkeys(void)
 void
 incmfact(const Arg *arg)
 {
-	float f;
+	double f;
 
 	if (!arg || !layouts[selmon->wsdata[selmon->ws].lt].arrange)
 		return;
@@ -1064,7 +1087,7 @@ keypress(XEvent *e)
 	XKeyEvent *ev = &e->xkey;
 
 	keysym = XKeycodeToKeysym(dpy, (KeyCode)ev->keycode, 0);
-	for (i = 0; i < LENGTH(keys); i++)
+	for (i = 0; i < nkeys; i++)
 		if (keysym == keys[i].keysym
 		&& CLEANMASK(keys[i].mod) == CLEANMASK(ev->state)
 		&& keys[i].func)
@@ -1113,49 +1136,6 @@ leavenotify(XEvent *e)
 
 	if (ev->window == c->frame || ev->window == c->win)
 		XUndefineCursor(dpy, ev->window);
-}
-
-void
-resource_load(XrmDatabase db, char *name, enum resource_type rtype, void *dst)
-{
-	int *idst = dst;
-	float *fdst = dst;
-	char *sdst = dst;
-	char fullname[256];
-	char *type;
-	XrmValue ret;
-
-	snprintf(fullname, sizeof(fullname), "%s.%s", "mithril", name);
-	fullname[sizeof(fullname) - 1] = '\0';
-	/* get resources that start with '*.' and 'mithril.' */
-	XrmGetResource(db, fullname, "*", &type, &ret);
-	if (!(ret.addr == NULL || strncmp("String", type, 64))) {
-		if (rtype == STRING)
-			strcpy(sdst, ret.addr);
-		else if (rtype == INTEGER)
-			*idst = strtoul(ret.addr, NULL, 10);
-		else if (rtype == FLOAT)
-			*fdst = strtof(ret.addr, NULL);
-	}
-}
-
-void
-load_xresources(void)
-{
-	Display *display;
-	char *resm;
-	XrmDatabase db;
-	ResourcePref *p;
-
-	display = XOpenDisplay(NULL);
-	resm = XResourceManagerString(display);
-	if (!resm)
-		return;
-
-	db = XrmGetStringDatabase(resm);
-	for (p = resources; p < resources + LENGTH(resources); p++)
-		resource_load(db, p->name, p->type, p->dst);
-	XCloseDisplay(display);
 }
 
 void
@@ -1313,18 +1293,19 @@ motionnotify(XEvent *e)
 	} else if ((c = wintoclient(ev->window)) && ev->window == c->frame) {
 		edge = getedge(c, ev->x, ev->y);
 		if (c->hasdecoration) {
-			if (ev->y < th - titleborderpx && ev->y > c->bw) {
-				if(edge != EdgeNone)
-					hvr = HvrNone;
-				else if(ev->x >= c->bcx && ev->x < c->bcx + c->bcw)
-					hvr = HvrClose;
-				else if(ev->x >= c->bmxx && ev->x < c->bmxx + c->bmxw)
-					hvr = HvrMax;
-				else if(ev->x >= c->bmnx && ev->x < c->bmnx + c->bmnw)
-					hvr = HvrMin;
-				else
-					hvr = HvrNone;
-			} else { hvr = HvrNone; }
+			if(edge != EdgeNone)
+				hvr = HvrNone;
+			else if(ev->x >= c->bcx && ev->x < c->bcx + c->bcw &&
+				   ev->y >= c->bcy &&ev->y < c->bcy + c->bch)
+				hvr = HvrClose;
+			else if(ev->x >= c->bmxx && ev->x < c->bmxx + c->bmxw &&
+				   ev->y >= c->bmxy && ev->y < c->bmxy + c->bmxh)
+				hvr = HvrMax;
+			else if(ev->x >= c->bmnx && ev->x < c->bmnx + c->bmnw &&
+				   ev->y >= c->bmny && ev->y < c->bmny + c->bmnh)
+				hvr = HvrMin;
+			else
+				hvr = HvrNone;
 
 			if (c->hvr != hvr) {
 				c->hvr = hvr;
@@ -1862,7 +1843,7 @@ sendtomon(const Arg *arg)
 void
 sendtows(const Arg *arg)
 {
-	sendclient(selmon->sel, selmon, arg->i, 0);
+	sendclient(selmon->sel, selmon, arg->i - 1, 0);
 }
 
 void
@@ -1909,6 +1890,7 @@ setfullscreen(Client *c, int fullscreen)
 		return;
 
 	if (fullscreen) {
+		dragclient = NULL;
 		if(c->maximized)
 			unmaximize(c, c->ox, c->oy, 1);
 
@@ -1953,8 +1935,10 @@ setfocusmon(Monitor *m, int warp)
 void
 setlayout(const Arg *arg)
 {
-	if(arg->i >= 0 && arg->i < LENGTH(layouts))
-		selmon->wsdata[selmon->ws].lt = arg->i;
+	int lt = getlayoutnum((char *)arg->v);
+
+	if (lt < LENGTH(layouts))
+		selmon->wsdata[selmon->ws].lt = lt;
 	arrange(selmon);
 }
 
@@ -2059,7 +2043,7 @@ setup(void)
 
 	font = drw_font_create(titlefont, fontsize);
 	icons = drw_font_create(iconfont, iconsize);
-	th = font->h + 2 + titleborderpx + outerpad * 2;
+	th = titleheight + titleborderpx;
 
 	for (i = 0; i < LENGTH(colors); i++)
 		for (j = 0; j < LENGTH(colors[i]); j++)
@@ -2075,7 +2059,7 @@ setup(void)
 	XChangeProperty(dpy, wmcheckwin, netatom[NetWMCheck], XA_WINDOW, 32,
 		PropModeReplace, (unsigned char *) &wmcheckwin, 1);
 	XChangeProperty(dpy, wmcheckwin, netatom[NetWMName], utf8string, 8,
-		PropModeReplace, (unsigned char *) "dwm", 3);
+		PropModeReplace, (unsigned char *) "mithril", 7);
 	XChangeProperty(dpy, root, netatom[NetWMCheck], XA_WINDOW, 32,
 		PropModeReplace, (unsigned char *) &wmcheckwin, 1);
 	XChangeProperty(dpy, root, netatom[NetSupported], XA_ATOM, 32,
@@ -2298,7 +2282,7 @@ tile(Monitor *m)
 void
 togglegaps(const Arg *arg)
 {
-	selmon->wsdata[selmon->ws].gappx = selmon->wsdata[selmon->ws].gappx ? 0 : workspace_rules[selmon->ws].gappx;
+	selmon->wsdata[selmon->ws].gappx = selmon->wsdata[selmon->ws].gappx ? 0 : gappx;
 	arrange(selmon);
 }
 
@@ -2513,13 +2497,13 @@ updatedesktops(void)
 		PropModeReplace, (unsigned char *)&n, 1);
 
 	for (m = mons; m && !done; m = m->next) {
-		for (i = 0; i < (unsigned)workspaces && i < LENGTH(workspace_rules); i++) {
-			len = strlen(workspace_rules[i].name) + 1;
+		for (i = 0; i < (unsigned)workspaces; i++) {
+			len = strlen(m->wsdata[i].name) + 1;
 			if (off + len > (int)sizeof(names)) {
 				done = 1;
 				break;
 			}
-			memcpy(names + off, workspace_rules[i].name, len);
+			memcpy(names + off, m->wsdata[i].name, len);
 			off += len;
 		}
 	}
@@ -2783,9 +2767,10 @@ updateviewport(void) {
 void
 view(const Arg *arg)
 {
-	if (selmon->ws == arg->i)
+	int ws = arg->i - 1;
+	if (selmon->ws == ws)
 		return;
-	selmon->ws = arg->i < workspaces && arg->i >= 0 ? arg->i : workspaces - 1;
+	selmon->ws = ws < workspaces && arg->i >= 0 ? ws : workspaces - 1;
 	arrange(selmon);
 	updatecurrentdesktop();
 	focus(NULL);
@@ -2862,7 +2847,8 @@ main(int argc, char *argv[])
      	die("mithril: cannot open display");
 	xerrorxlib = XSetErrorHandler(xerrordummy);
 	XrmInitialize();
-	load_xresources();
+	cfg_load();
+	cfg_load_xresources();
 	setup();
 	XSetErrorHandler(xerror);
 	scan();

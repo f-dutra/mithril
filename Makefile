@@ -12,13 +12,13 @@ LDFLAGS = -L$(X11LIB) -lX11 -lXrender -lcairo -lm -lXrandr ${PANGOLIBS}
 
 CC      = cc
 
-SRC = mithril.c drw.c util.c
+SRC = mithril.c config.c drw.c util.c
 OBJ = ${SRC:.c=.o}
 
 .c.o:
 	${CC} -c ${CFLAGS} $<
 
-${OBJ}: config.h drw.h util.h
+${OBJ}: config.h drw.h util.h defs.h
 
 all: mithril
 
