@@ -1,19 +1,17 @@
 typedef struct {
-	char *name;
-	int type;
-	void *dst;
-} Parser;
-
-typedef struct {
 	char *classg;
+	char *iname;
+	char *mon;
 	int ws;
 	int floating;
-	int monitor;
-} Rule;
+	int sticky;
+	int decor;
+} ClientRule;
 
 typedef struct {
 	int num;
 	char *name;
+	char *mon;
 	char *layout;
 	int gappx;
 	double mfact;
@@ -29,16 +27,17 @@ extern int nmaster;
 extern int gappx;
 
 extern char layout[];
-extern Key *keys;
-extern int nkeys;
+extern ClientRule *clientrules;
 extern WorkspaceRule *workspacerules;
+extern int ncrule;
 extern int nwsrule;
 
 extern int movestep;
-extern long unsigned int refreshrate;
+extern int refreshrate;
 extern unsigned int workspaces;
 extern int decorhints;
 
+extern int notiledtitle;
 extern int borderpx;
 extern int verticaltitle;
 extern int inverttitlebar;
