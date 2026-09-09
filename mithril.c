@@ -1227,7 +1227,7 @@ maximize(Client *c)
 	c->obw = c->bw;
 	c->bw = 0;
 	XSetWindowBorderWidth(dpy, c->frame, c->bw);
-	resize(c, c->mon->wx, c->mon->wy, c->mon->ww - 2 * c->bw, c->mon->wh - 2 * c->bw);
+	resize(c, c->mon->wx, c->mon->wy, c->mon->ww, c->mon->wh);
 	c->maximized = 1;
 	c->tmpunmax = 0;
 	setclientstate(c);
