@@ -204,6 +204,7 @@ static void setup(void);
 static void setclientdesktop(Client *c);
 static void setclientstate(Client *c);
 static void setfocus(Client *c);
+static void setdragatom(Client *c, int dragging);
 static void setfocusmon(Monitor *m, int warp);
 static void setfullscreen(Client *c, int fullscreen);
 static void setwmstate(Window w, long state);
@@ -260,7 +261,7 @@ static int depth;
 static Visual *visual;
 static Window root, wmcheckwin;
 
-static Atom utf8string, motifatom;
+static Atom utf8string, motifatom, dragatom;
 static Atom wmatom[WMLast], netatom[NetLast];
 static int (*xerrorxlib)(Display *, XErrorEvent *);
 static int xrandr_evbase, xrandr_errbase;
@@ -320,7 +321,6 @@ void (*handler[LASTEvent]) (XEvent *) = {
 };
 
 /* implementations */
-
 void
 applyrules(Client *c)
 {
@@ -1346,6 +1346,7 @@ movemouse(const Arg *arg)
 	if (!getrootptr(&x, &y))
 		return;
 	dragclient = c;
+	setdragatom(c, 1);
 	ocx = c->maximized && x > c->x + c->ow / 2 ? x - c->ow / 2 : c->x;
 	ocy = c->y;
 	do {
@@ -1393,6 +1394,7 @@ movemouse(const Arg *arg)
 		ev.xclient.message_type == netatom[NetWMMoveResize] &&
 		ev.xclient.data.l[2] == 11) && dragclient); /* 11 means cancel */
 	dragclient = NULL;
+	setdragatom(c, 0);
 	XUngrabPointer(dpy, CurrentTime);
 }
 
@@ -1575,6 +1577,7 @@ resizemouse(const Arg *arg)
 	if (!getrootptr(&x, &y))
 		return;
 	dragclient = c;
+	setdragatom(c, 1);
 	nx = ocx = c->x; ny = ocy = c->y;
 	nw = ocw = c->w; nh = och = c->h;
 
@@ -1627,6 +1630,7 @@ resizemouse(const Arg *arg)
 		ev.xclient.message_type == netatom[NetWMMoveResize] &&
 		ev.xclient.data.l[2] == 11) && dragclient); /* 11 means cancel */
 	dragclient = NULL;
+	setdragatom(c, 0);
 	XUngrabPointer(dpy, CurrentTime);
 }
 
@@ -1879,6 +1883,22 @@ setclientstate(Client *c)
 		PropModeReplace, (unsigned char *)states, n);
 }
 
+/* Custom atom to tell compositors that the window is being moved by mouse */
+/* Useful for animations */
+void
+setdragatom(Client *c, int dragging)
+{
+	long v = dragging;
+
+	if (!c)
+		return;
+	if (dragging)
+		XChangeProperty(dpy, c->win, dragatom, XA_CARDINAL, 32,
+			PropModeReplace, (unsigned char *)&v, 1);
+	else
+		XDeleteProperty(dpy, c->win, dragatom);
+}
+
 void
 setfocus(Client *c)
 {
@@ -1964,6 +1984,7 @@ setup(void)
 
 	utf8string = XInternAtom(dpy, "UTF8_STRING", False);
 	motifatom = XInternAtom(dpy, "_MOTIF_WM_HINTS", False);
+	dragatom = XInternAtom(dpy, "_MITHRIL_WM_DRAGGED", False);
 	wmatom[WMProtocols] = XInternAtom(dpy, "WM_PROTOCOLS", False);
 	wmatom[WMDelete] = XInternAtom(dpy, "WM_DELETE_WINDOW", False);
 	wmatom[WMState] = XInternAtom(dpy, "WM_STATE", False);
