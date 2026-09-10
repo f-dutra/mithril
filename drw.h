@@ -38,7 +38,7 @@ void drw_icon_destroy(Icon *icon);
 unsigned long drw_rgba_to_argb(double color[4]);
 void drw_rect(Drw *drw, int x, int y, int w, int h, int r, int fill, int linew);
 void drw_resize(Surf *s, int w, int h);
-void drw_scheme_setup();
+void drw_scheme_setup(void);
 void drw_set_font(Drw *drw, Fnt *fnt);
 void drw_set_color(Drw *drw, double *col);
 void drw_set_scheme(Drw *drw, double scheme[3][4]);
